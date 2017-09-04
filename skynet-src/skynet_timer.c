@@ -63,8 +63,8 @@ struct timer {
 	struct spinlock lock;       // 用于实现自旋锁
 	uint32_t time;						//从系统启动后经过的滴答数，即多少个1/100秒
 	uint32_t starttime;					//系统启动时间(绝对时间，单位为秒)
-	uint64_t current;					//前后时间差
-	uint64_t current_point;				//绝对时间
+	uint64_t current;					//距离上次的时间差
+	uint64_t current_point;					//当前时间
 };
 
 static struct timer * TI = NULL;
