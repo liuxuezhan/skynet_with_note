@@ -17,6 +17,23 @@
 #endif
 
 typedef void (*timer_execute_func)(void *ud,void *arg);
+// skynet 定时器的实现为linux内核的标准做法  精度为 0.01s 对游戏一般来说够了 高精度的定时器很费CPU
+// 对于内核最关心的、interval值在［0，255］
+// 内核在处理是否有到期定时器时，它就只从定时器向量数组tv1.vec［256］中的某个定时器向量内进行扫描。
+// （2）而对于内核不关心的、interval值在［0xff，0xffffffff］之间的定时器，
+// 它们的到期紧迫程度也随其interval值的不同而不同。显然interval值越小，定时器紧迫程度也越高。
+// 因此在将它们以松散定时器向量进行组织时也应该区别对待。通常，定时器的interval值越小，
+// 它所处的定时器向量的松散度也就越低（也即向量中的各定时器的expires值相差越小）；而interval值越大，
+// 它所处的定时器向量的松散度也就越大（也即向量中的各定时器的expires值相差越大）。
+// 所谓“松散的定时器向量语义”就是指：各定时器的expires值可以互不相同的一个定时器队列。
+
+// 内核规定，对于那些满足条件：0x100≤interval≤0x3fff的定时器，
+// 只要表达式（interval>>8）具有相同值的定时器都将被组织在同一个松散定时器向量中，
+// 即以1》8＝256为一个基本单位。因此，为组织所有满足条件0x100≤interval≤0x3fff的定时器，
+// 就需要2^6＝64个松散定时器向量。同样地，为方便起见，这64个松散定时器向量也放在一起形成数组，并作为数据结构timer_vec的一部分。
+// 同理对于0x4000≤interval≤0xfffff、0x100000≤interval≤0x3ffffff、0x4000000≤interval≤0xffffffff 区间，
+//只要表达式（interval>>8＋6）、（interval>>8＋6 +6）、（interval>>8＋6+6+6）的值相同则被放在同义个松散定时器中
+//器都将被放在同一个松散定时器向量中,故link_list t 为t[4],TIME_LEVEL_SHIFT 为 6
 
 #define TIME_NEAR_SHIFT 8
 #define TIME_NEAR (1 << TIME_NEAR_SHIFT)	// 256(0xff + 1)
@@ -36,7 +53,7 @@ struct timer_event {
 
 struct timer_node {
 	struct timer_node *next;
-	uint32_t expire;
+	uint32_t expire;  // 超时滴答计数 即超时间隔
 };
 
 //定时器链表，注册的定时器的struct timer_node每个链表下都有一个结构挂在相应的链表下
@@ -57,7 +74,7 @@ struct timer {
 * 所以最大的定时器时间应该是 (64*64*64*64*256) 1/100秒 (64*64*64*64*256)恰好为2^32
 ***********************************/
 	struct link_list t[4][TIME_LEVEL];
-	struct spinlock lock;
+	struct spinlock lock;       // 用于实现自旋锁
 	uint32_t time;						//从系统启动后经过的滴答数，即多少个1/100秒
 	uint32_t starttime;					//系统启动时间(绝对时间，单位为秒)
 	uint64_t current;					//相对时间(相对于starttime)
@@ -183,7 +200,7 @@ dispatch_list(struct timer_node *current) {
 	} while (current);
 }
 
-
+// 从超时列表中取到时的消息来分发
 //取当前绝对时间粒度的低8位，依次取出挂在其上的struct timer_node进行处理
 static inline void
 timer_execute(struct timer *T) {
@@ -197,7 +214,7 @@ timer_execute(struct timer *T) {
 		SPIN_LOCK(T);
 	}
 }
-
+// 时间每过一个滴答，执行一次该函数
 static void 
 timer_update(struct timer *T) {
 	SPIN_LOCK(T);
@@ -238,7 +255,7 @@ timer_create_timer() {
 	return r;
 }
 
-//上层的skynet.timeout最终会调用此借口
+// 插入定时器，time的单位是0.01秒，如time=300，表示3秒
 int
 skynet_timeout(uint32_t handle, int time, int session) {
 	if (time <= 0) {
@@ -260,7 +277,7 @@ skynet_timeout(uint32_t handle, int time, int session) {
 
 	return session;
 }
-
+// 返回系统开机到现在的时间，单位是百分之一秒 0.01s
 // 返回起始时间(绝对时间),和相对于起始时间经过了多少个0.01s的相对时间
 // centisecond: 1/100 second
 static void
