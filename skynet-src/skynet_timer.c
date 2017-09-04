@@ -307,7 +307,7 @@ skynet_updatetime(void) {
 		TI->current_point = cp;
 	} else if (cp != TI->current_point) {
 		uint32_t diff = (uint32_t)(cp - TI->current_point);
-		TI->current_point = cp;	//更新绝对时间
+		TI->current_point = cp;	//更新当前时间
 		TI->current += diff;
 		int i;
 		for (i=0;i<diff;i++) {	//经过了多少个时间粒度就执行多少次,一般diff为1
